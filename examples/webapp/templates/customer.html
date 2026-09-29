@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+{% block title %}{{ name }} · JIT Agents{% endblock %}
+{% macro checks(report) %}
+<table style="margin-top:6px">
+  {% if report.validation_error %}<tr><td class="bad">✗</td><td>validation</td><td class="muted">{{ report.validation_error }}</td></tr>{% endif %}
+  {% for group, label in [(report.behavior, 'test'), (report.builtin, 'built-in'), (report.invariants, 'invariant')] %}
+  {% for c in group %}
+  <tr><td class="{{ 'ok' if c.passed else 'bad' }}">{{ '✓' if c.passed else '✗' }}</td><td><span class="muted">{{ label }}</span> {{ c.name }}</td><td class="muted">{{ c.detail }}</td></tr>
+  {% endfor %}{% endfor %}
+</table>
+{% endmacro %}
+{% block body %}
+<p class="muted"><a href="/">← all customers</a></p>
+<h2 style="margin:0 0 14px; font-size:20px">{{ name }}
+  <span id="title">{% for name, r in active.items() %}<span class="pill">{{ name }} v{{ r.version }} live</span> {% else %}<span class="pill muted">no rules</span>{% endfor %}</span>
+</h2>
+<div class="grid">
+  <div>
+    <div class="panel" style="border-color:var(--accent)">
+      <h2>Update the rule</h2>
+      <p class="muted" style="margin:0 0 8px">One rule per event type:
+        {% for name in event_types %}<span class="pill">{{ name }}</span> {% endfor %}. Describe a rule for a type that has none to add it, or describe a change to update one.</p>
+      <textarea id="box" rows="3" placeholder="e.g. Route any invoice over $500 from an untrusted vendor to fraud review. Enter to send, Shift+Enter for a new line."></textarea>
+      <div style="margin-top:8px; display:flex; gap:12px; align-items:center">
+        <button id="send" onclick="send()">Update</button>
+        <label class="muted"><input type="checkbox" id="auto" checked> apply without asking me to confirm the tests</label>
+      </div>
+      <div id="progress" style="margin-top:12px"></div>
+    </div>
+
+    <div id="proposal-slot">
+    {% if proposal %}
+    <div class="panel" style="border-color:var(--warn)">
+      <h2>Waiting for you · {{ proposal.event_type }} · confirm the behaviour</h2>
+      <p>{{ proposal.summary }}</p>
+      <table>
+        <tr><th>Test</th><th>Event</th><th>Lookups return</th><th>Expected calls</th></tr>
+        {% for t in proposal.tests %}
+        <tr>
+          <td>{{ t.name }}</td>
+          <td class="muted"><code>{% for k, v in t.event.items() if k != 'customer_id' %}{{ k }}={{ v }} {% endfor %}</code></td>
+          <td class="muted"><code>{% for k, v in t.lookups.items() if v is not none %}{{ k }}={{ v }} {% else %}—{% endfor %}</code></td>
+          <td class="calls">{% for c in t.expected_calls %}<b>{{ c.tool }}</b>({% for k, v in c.args.items() %}{{ k }}="{{ v }}"{% if not loop.last %}, {% endif %}{% endfor %})<br>{% else %}<span class="muted">nothing</span>{% endfor %}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      <div style="margin-top:12px; display:flex; gap:8px">
+        <button onclick="confirmBuild()">Confirm → build, test, inject</button>
+        <form class="inline" method="post" action="/customers/{{ cid }}/reject"><button type="submit" class="secondary">Reject</button></form>
+      </div>
+    </div>
+    {% endif %}
+    </div>
+
+    <div id="failure-slot">
+    {% if failure %}
+    <div class="panel" style="border-color:var(--bad)">
+      <h2>Last build failed after {{ failure.attempts }} attempt(s)</h2>
+      <pre>{{ failure.source }}</pre>
+      {% if failure.report %}{{ checks(failure.report) }}{% endif %}
+    </div>
+    {% endif %}
+    </div>
+
+    <div class="panel">
+      <h2>Rules</h2>
+      <div id="rules">
+      {% if not rules %}<p class="muted">No rules yet.</p>{% endif %}
+      {% for name, r in active.items() %}
+      <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px">
+        <span class="pill">{{ name }} v{{ r.version }}</span>
+        <form class="inline" method="post" action="/customers/{{ cid }}/rollback"><input type="hidden" name="event_type" value="{{ name }}"><button class="secondary" type="submit">Roll back</button></form>
+        <form class="inline" method="post" action="/customers/{{ cid }}/remove"><input type="hidden" name="event_type" value="{{ name }}"><button class="danger" type="submit">Remove</button></form>
+        {% if old_counts[name] %}
+        <form class="inline" method="post" action="/customers/{{ cid }}/prune" onsubmit="return confirm('Permanently delete {{ old_counts[name] }} old {{ name }} version(s)? You will not be able to roll back to them.')"><input type="hidden" name="event_type" value="{{ name }}"><button class="secondary" type="submit">Delete {{ old_counts[name] }} old</button></form>
+        {% endif %}
+      </div>
+      {% endfor %}
+      {% for r in rules %}
+      <details {% if r.status == 'active' %}open{% endif %} style="margin-bottom:10px">
+        <summary>{{ r.event_type }} v{{ r.version }} · <span class="{{ 'ok' if r.status == 'active' else ('bad' if r.status == 'stale' else 'muted') }}">{{ r.status }}</span>
+          · {{ r.attempts }} attempt(s){% if r.report and r.report.latency_p50_ns %} · {{ '%.1f' % (r.report.latency_p50_ns / 1000) }} µs in gate · {{ r.report.events_checked }} events checked{% endif %}</summary>
+        <p class="muted" style="margin:6px 0">"{{ r.intent }}"<br>{{ r.summary }}<br>id {{ r.id }}</p>
+        <pre>{{ r.source }}</pre>
+        {% if r.report %}{{ checks(r.report) }}{% endif %}
+        {% if r.status != 'active' %}
+        <form method="post" action="/customers/{{ cid }}/rules/{{ r.id }}/delete" style="margin-top:6px" onsubmit="return confirm('Permanently delete {{ r.event_type }} v{{ r.version }}?')"><button class="secondary" type="submit">Delete this version</button></form>
+        {% endif %}
+      </details>
+      {% endfor %}
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Conversation</h2>
+      <div id="chat">
+      {% for m in messages %}<div class="msg {{ m.role }}"><span class="who">{{ m.role }}</span>{{ m.content }}</div>{% endfor %}
+      {% if not messages %}<p class="muted">Nothing yet. Try: <em>"If a shipment from Dallas is more than two hours late, send an SMS to the contact named Murphy."</em></p>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h2>Live stream · this customer</h2>
+      <div class="stats" id="stats"></div>
+      <table id="log"></table>
+    </div>
+
+    <div class="panel" id="benchmark">
+      <h2>Benchmark · injected rule vs. model per event</h2>
+      {% if active %}
+      <form method="post" action="/customers/{{ cid }}/benchmark" style="display:flex; gap:8px; align-items:center" onsubmit="const b=this.querySelector('button'); b.textContent='running…'; b.disabled=true;">
+        <select name="event_type" style="background:#0d0f13; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px">
+          {% for name in active %}<option {% if benchmark and benchmark.event_type == name %}selected{% endif %}>{{ name }}</option>{% endfor %}
+        </select>
+        <label class="muted">events</label><input type="number" name="n" value="5" min="1" max="20" style="width:70px">
+        <button type="submit" class="secondary">Run</button>
+      </form>
+      {% else %}<p class="muted">Inject a rule first.</p>{% endif %}
+      {% if benchmark %}
+      <div class="stats" style="margin-top:12px">
+        <div class="stat"><b>{{ benchmark.rule_avg_us }} µs</b><span>injected rule, avg</span></div>
+        <div class="stat"><b>{{ benchmark.llm_avg_ms if benchmark.llm_avg_ms is not none else '–' }} ms</b><span>{{ benchmark.model }} per event, avg</span></div>
+        <div class="stat"><b>{{ benchmark.speedup if benchmark.speedup else '–' }}×</b><span>speedup</span></div>
+        <div class="stat"><b>{{ benchmark.agreement }}</b><span>model agreed with rule</span></div>
+      </div>
+      <table>
+        <tr><th>Event</th><th>Injected rule</th><th>Model</th></tr>
+        {% for row in benchmark.rows %}
+        <tr>
+          <td class="muted"><code>{% for k, v in row.event.items() if not k.endswith('_id') %}{{ k }}={{ v }} {% endfor %}</code></td>
+          <td><span class="ok">{{ row.rule_us }} µs</span><br><span class="calls">{% for c in row.rule_calls %}<b>{{ c.tool }}</b> {% else %}—{% endfor %}</span></td>
+          <td><span class="{{ 'ok' if row.agree else 'warn' }}">{{ row.llm_ms }} ms</span>{% if row.llm_error %} <span class="bad">{{ row.llm_error }}</span>{% endif %}<br>
+            <span class="calls">{% for c in row.llm_calls %}<b>{{ c.tool }}</b> {% else %}—{% endfor %}{% if not row.agree %} <span class="warn">≠</span>{% endif %}</span></td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block script %}
+<script>
+const CID = {{ cid | tojson }};
+const $ = id => document.getElementById(id);
+const liveVersions = {};
+
+// -- live stream table ------------------------------------------------------
+function render(d) {
+  const s = d.stats;
+  $('stats').innerHTML = `
+    <div class="stat"><b>${s.dispatched}</b><span>events through rule</span></div>
+    <div class="stat"><b>${fmt(s.p50_us, 'µs')}</b><span>p50</span></div>
+    <div class="stat"><b>${fmt(s.p99_us, 'µs')}</b><span>p99</span></div>
+    <div class="stat"><b>${fmt(s.max_us, 'µs')}</b><span>max</span></div>
+    <div class="stat"><b class="${s.errors ? 'bad' : ''}">${s.errors}</b><span>errors</span></div>`;
+  $('log').innerHTML = rowsHtml(d.events, false);
+  d.events.forEach((e, i) => {
+    if (e.ran && liveVersions[e.event_type] === e.version) $('log').rows[i + 1].cells[2].classList.add('ok');
+  });
+}
+async function poll() { try { render(await (await fetch('/api/stream?customer_id=' + encodeURIComponent(CID) + '&limit=20')).json()); } catch (e) {} }
+poll(); setInterval(poll, 500);
+
+// -- real-time update -------------------------------------------------------
+let started = 0, current = null, ticker = null;
+const secs = () => ((performance.now() - started) / 1000).toFixed(1) + 's';
+
+function step(text, cls) {
+  finish('ok');
+  const div = document.createElement('div');
+  div.style.cssText = 'padding:4px 0; border-bottom:1px solid var(--line)';
+  div.innerHTML = `<span class="mark warn">●</span> <span class="text">${text}</span> <span class="muted time" style="float:right"></span>`;
+  div.dataset.start = performance.now();
+  $('progress').appendChild(div);
+  current = div;
+  if (cls) finish(cls);
+  return div;
+}
+function finish(cls, extraHtml) {
+  if (!current) return;
+  const mark = current.querySelector('.mark');
+  mark.className = 'mark ' + cls;
+  mark.textContent = cls === 'ok' ? '✓' : cls === 'bad' ? '✗' : '●';
+  current.querySelector('.time').textContent = ((performance.now() - current.dataset.start) / 1000).toFixed(1) + 's';
+  if (extraHtml) current.insertAdjacentHTML('beforeend', extraHtml);
+  current = null;
+}
+const code = (label, src) => `<details style="margin:4px 0 4px 18px"><summary>${esc(label)}</summary><pre>${esc(src)}</pre></details>`;
+
+function handle(ev) {
+  if (ev.stage === 'understanding') step('Reading your request');
+  else if (ev.stage === 'question') { finish('ok'); step('I need one thing from you: <b>' + esc(ev.text) + '</b>', 'warn'); }
+  else if (ev.stage === 'revising') step(`No rule passed after ${ev.attempts} attempts. Checking whether my tests were wrong`);
+  else if (ev.stage === 'proposal') {
+    const tests = ev.tests.map(t => `<tr><td>${esc(t.name)}</td><td class="muted">${Object.entries(t.lookups || {}).filter(([k, v]) => v !== null).map(([k, v]) => esc(k) + ' = ' + esc(v)).join('<br>')}</td><td class="calls">${t.expected_calls.map(c => '<b>' + esc(c.tool) + '</b>(' + Object.values(c.args).map(v => esc(JSON.stringify(v))).join(', ') + ')').join('<br>') || '<span class="muted">nothing</span>'}</td></tr>`).join('');
+    finish('ok', `<div style="margin:4px 0 4px 18px"><span class="pill">${esc(ev.event_type)}</span> <span class="muted">${ev.revised ? 'corrected tests · ' : ''}${ev.replaces ? 'replaces v' + ev.replaces : 'new rule'}</span><br>${esc(ev.summary)}<table>${tests}</table></div>`);
+  }
+  else if (ev.stage === 'awaiting_confirmation') step('Waiting for you to confirm the tests below', 'warn');
+  else if (ev.stage === 'generating') step(`Writing the rule, attempt ${ev.attempt} of ${ev.max}`);
+  else if (ev.stage === 'checked') {
+    if (ev.ok) finish('ok', code('source', ev.source));
+    else finish('bad', code('rejected source', ev.source) + `<pre style="margin-left:18px" class="bad">${esc(ev.feedback)}</pre>`);
+    step(ev.ok ? `Passed the gate across ${ev.events_checked} events` : `Failed the gate on attempt ${ev.attempt}`, ev.ok ? 'ok' : 'bad');
+  }
+  else if (ev.stage === 'injected') {
+    liveVersions[ev.event_type] = ev.version;
+    step(`<b class="ok">${esc(ev.event_type)} v${ev.version} is live in the stream</b> · ${ev.p50_us} µs per event · ${secs()} from request to live`, 'ok');
+  }
+  else if (ev.stage === 'failed') step(`No rule passed the gate in ${ev.attempts} attempts. The previous rule is still live.`, 'bad');
+  else if (ev.stage === 'error') { finish('bad'); step('Error: ' + esc(ev.message), 'bad'); }
+}
+
+async function run(url, body) {
+  $('send').disabled = true;
+  $('progress').innerHTML = '';
+  started = performance.now(); current = null;
+  ticker = setInterval(() => { if (current) current.querySelector('.time').textContent = ((performance.now() - current.dataset.start) / 1000).toFixed(1) + 's'; }, 100);
+  try {
+    const resp = await fetch(url, {method: 'POST', body});
+    if (!resp.ok) throw new Error('server returned ' + resp.status);
+    const reader = resp.body.getReader(), decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, {stream: true});
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (line.startsWith('data: ')) handle(JSON.parse(line.slice(6)));
+      }
+    }
+  } catch (e) { handle({stage: 'error', message: e.message}); }
+  clearInterval(ticker);
+  $('send').disabled = false;
+  await refresh();
+}
+
+function send() {
+  const text = $('box').value.trim();
+  if (!text || $('send').disabled) return;
+  const body = new FormData();
+  body.append('text', text);
+  if ($('auto').checked) body.append('auto', 'true');
+  $('box').value = '';
+  run('/customers/' + encodeURIComponent(CID) + '/update', body);
+}
+function confirmBuild() { run('/customers/' + encodeURIComponent(CID) + '/build', new FormData()); }
+
+$('box').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+try { $('auto').checked = localStorage.getItem('auto') !== 'false'; } catch (e) {}
+$('auto').addEventListener('change', () => { try { localStorage.setItem('auto', $('auto').checked); } catch (e) {} });
+
+// Pull fresh server-rendered sections into the page without reloading it.
+async function refresh() {
+  try {
+    const doc = new DOMParser().parseFromString(await (await fetch(location.pathname)).text(), 'text/html');
+    for (const id of ['title', 'proposal-slot', 'failure-slot', 'rules', 'chat']) {
+      const fresh = doc.getElementById(id);
+      if (fresh) $(id).innerHTML = fresh.innerHTML;
+    }
+  } catch (e) {}
+}
+</script>
+{% endblock %}

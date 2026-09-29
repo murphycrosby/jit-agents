@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="grid">
+  <div class="panel">
+    <h2>Customers</h2>
+    <table>
+      <tr><th>Customer</th><th>Live rules</th><th>In memory</th><th>p50</th><th>p99</th></tr>
+      {% for c in customers %}
+      <tr>
+        <td><a href="/customers/{{ c.id }}">{{ c.name }}</a></td>
+        <td>{% for name, r in c.rules.items() %}<span class="pill">{{ name }} v{{ r.version }}</span> {% else %}<span class="muted">none</span>{% endfor %}</td>
+        <td class="muted">{{ c.loaded if c.loaded else '—' }}</td>
+        <td>{{ c.stats.p50_us if c.stats.p50_us is not none else '–' }} µs</td>
+        <td>{{ c.stats.p99_us if c.stats.p99_us is not none else '–' }} µs</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <form method="post" action="/customers" style="margin-top:14px; display:flex; gap:8px">
+      <input type="text" name="name" placeholder="New customer name" required>
+      <button type="submit">Add</button>
+    </form>
+  </div>
+  <div class="panel">
+    <h2>Stream</h2>
+    <div class="stats" id="stats"></div>
+    <button class="secondary" onclick="ctl('start')">Start</button>
+    <button class="secondary" onclick="ctl('stop')">Stop</button>
+    <table id="log" style="margin-top:10px"></table>
+  </div>
+</div>
+{% endblock %}
+{% block script %}
+<script>
+function render(d) {
+  const s = d.stats;
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><b class="${s.running ? 'ok' : 'muted'}">${s.running ? 'running' : 'stopped'}</b><span>state</span></div>
+    <div class="stat"><b>${s.total}</b><span>events</span></div>
+    <div class="stat"><b>${s.dispatched}</b><span>ran a rule</span></div>
+    <div class="stat"><b>${fmt(s.p50_us, 'µs')}</b><span>p50</span></div>
+    <div class="stat"><b>${fmt(s.p99_us, 'µs')}</b><span>p99</span></div>
+    <div class="stat"><b class="${s.errors ? 'bad' : ''}">${s.errors}</b><span>errors</span></div>`;
+  document.getElementById('log').innerHTML = rowsHtml(d.events, true);
+}
+async function poll() { try { render(await (await fetch('/api/stream?limit=20')).json()); } catch (e) {} }
+async function ctl(a) { await fetch('/api/stream/' + a, {method: 'POST'}); poll(); }
+poll(); setInterval(poll, 1000);
+</script>
+{% endblock %}

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}JIT Agents{% endblock %}</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#262b36; --fg:#e6e8ee; --muted:#8b93a7; --accent:#6ea8fe; --ok:#3fb950; --bad:#f85149; --warn:#d29922; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif; }
+  a { color:var(--accent); text-decoration:none; }
+  header { padding:14px 24px; border-bottom:1px solid var(--line); display:flex; gap:18px; align-items:baseline; flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0; }
+  main { padding:20px 24px; max-width:1300px; margin:0 auto; }
+  .grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:20px; align-items:start; }
+  .grid > * { min-width:0; }
+  @media (max-width:900px) { .grid { grid-template-columns:minmax(0,1fr); } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow-x:auto; }
+  .panel h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 12px; }
+  .msg { padding:8px 10px; border-radius:6px; margin-bottom:8px; white-space:pre-wrap; }
+  .msg.user { background:#1d2a3d; } .msg.assistant { background:#1b2230; }
+  .msg.system { background:#2a2214; color:var(--warn); font-size:12px; }
+  .msg .who { font-size:11px; color:var(--muted); display:block; margin-bottom:2px; }
+  textarea, input[type=text], input[type=number] { width:100%; background:#0d0f13; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:8px; font:inherit; }
+  button { background:var(--accent); color:#0b1220; border:0; border-radius:6px; padding:7px 12px; font:inherit; font-weight:600; cursor:pointer; }
+  button.secondary { background:#2a3040; color:var(--fg); } button.danger { background:var(--bad); color:#fff; }
+  form.inline { display:inline; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th, td { text-align:left; padding:5px 6px; border-bottom:1px solid var(--line); vertical-align:top; overflow-wrap:anywhere; }
+  #log { table-layout:fixed; }
+  #log { width:100%; } #log th:first-child { width:84px; } #log th:nth-last-child(2) { width:52px; } #log th:last-child { width:84px; }
+  #log .did { display:block; margin-top:2px; }
+  .stat b { font-variant-numeric:tabular-nums; }
+  th { color:var(--muted); font-weight:500; }
+  code, pre { font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  pre { background:#0d0f13; border:1px solid var(--line); border-radius:6px; padding:10px; overflow:auto; margin:0; max-width:100%; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .muted { color:var(--muted); } .warn { color:var(--warn); }
+  .pill { display:inline-block; padding:1px 7px; border-radius:10px; font-size:11px; background:#2a3040; }
+  .stats { display:flex; gap:18px; flex-wrap:wrap; margin-bottom:10px; }
+  .stat b { display:block; font-size:18px; } .stat span { font-size:11px; color:var(--muted); }
+  details summary { cursor:pointer; color:var(--accent); }
+  .calls { color:var(--muted); } .calls b { color:var(--fg); font-weight:500; }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="/">JIT Agents</a></h1>
+  <span class="muted">turning user intent into code that runs without the model</span>
+  <span class="muted" style="margin-left:auto">model
+    <select id="provider" onchange="setProvider(this.value)" style="background:#0d0f13; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:3px 6px; font:inherit">
+      {% for name, model_id in providers.items() %}<option value="{{ name }}" {% if name == provider %}selected{% endif %}>{{ name }} · {{ model_id }}</option>{% endfor %}
+    </select>
+  </span>
+</header>
+<main>{% block body %}{% endblock %}</main>
+<script>
+async function setProvider(name) {
+  const body = new FormData(); body.append('provider', name);
+  await fetch('/api/model', {method: 'POST', body});
+}
+const fmt = (v, unit) => v === null || v === undefined ? '–' : v + ' ' + unit;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const brief = e => Object.entries(e.event).filter(([k]) => k !== 'customer_id' && !k.endsWith('_id')).map(([k, v]) => esc(k) + '=' + esc(v)).join(' ');
+const callsHtml = e => e.error ? '<span class="bad">' + esc(e.error) + '</span>'
+  : (e.calls.map(c => '<b>' + esc(c.tool) + '</b>(' + Object.values(c.args).map(v => esc(JSON.stringify(v))).join(', ') + ')').join('<br>') || '<span class="muted">—</span>');
+function rowsHtml(events, withKey) {
+  return '<tr><th>t</th>' + (withKey ? '<th style="width:90px">customer</th>' : '') + '<th>event</th><th>rule</th><th>latency</th></tr>' +
+    events.map(e => `<tr><td class="muted">${new Date(e.ts * 1000).toLocaleTimeString()}</td>${withKey ? '<td>' + esc(e.customer) + '</td>' : ''}
+      <td>${esc(e.event_type)} <span class="muted">${brief(e)}</span>${(e.error || e.calls.length) ? '<span class="calls did">→ ' + callsHtml(e) + '</span>' : ''}</td>
+      <td>${e.ran ? 'v' + e.version : '<span class="muted">none</span>'}</td>
+      <td>${e.ran ? e.latency_us + ' µs' : ''}</td></tr>`).join('');
+}
+</script>
+{% block script %}{% endblock %}
+</body>
+</html>
