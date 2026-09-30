@@ -14,7 +14,7 @@ def handle(event, tools):
         tools.route(queue="fraud_review")
 '''
 INVOICE_TESTS = [
-    Case(name="big untrusted", event={"customer_id": "globex", "amount": 900}, expected_calls=[{"tool": "route", "args": {"queue": "fraud_review"}}]),
+    Case(name="big untrusted", event={"customer_id": "globex", "amount": 900.5}, expected_calls=[{"tool": "route", "args": {"queue": "fraud_review"}}]),
     Case(name="small", event={"customer_id": "globex", "amount": 100}, expected_calls=[]),
 ]
 
@@ -266,7 +266,7 @@ def handle(event, tools):
         tools.route(queue="fraud_review")
 '''
 AVG_TESTS = [
-    Case(name="over", event={"customer_id": "globex", "amount": 600}, lookups={"average_amount": 500.0},
+    Case(name="over", event={"customer_id": "globex", "amount": 600.5}, lookups={"average_amount": 500.0},
          expected_calls=[{"tool": "route", "args": {"queue": "fraud_review"}}]),
     Case(name="exactly 10% over is not enough", event={"customer_id": "globex", "amount": 550}, lookups={"average_amount": 500.0}),
     Case(name="no history", event={"customer_id": "globex", "amount": 600}, lookups={"average_amount": None}),
@@ -427,3 +427,12 @@ def test_delete_and_prune_old_versions(tmp_path, use_sqlite):
     assert rt.dispatch(LATE, execute=False).ran      # the live rule still runs
     assert rt.rollback("acme") is None               # nothing left to roll back to
     assert rt.rule_for("globex").id == other.id      # other keys untouched
+
+
+def test_tests_must_exercise_a_fractional_value_for_float_fields():
+    from jit_agents.generator import test_problems
+
+    whole = [t.model_copy(update={"event": dict(t.event, hours_late=3)}) for t in TESTS]
+    problems = test_problems(whole, ShipmentEvent)
+    assert len(problems) == 1 and "hours_late" in problems[0] and "2.5" in problems[0]
+    assert test_problems(TESTS, ShipmentEvent) == []          # TESTS has a 3.5

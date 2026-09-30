@@ -1,7 +1,10 @@
-"""End-to-end run against a local Ollama model, or Claude.
+"""End-to-end run against one model. Use it to check that a provider works.
 
     uv run python examples/quickstart.py
     JIT_PROVIDER=claude uv run python examples/quickstart.py
+    JIT_PROVIDER=databricks uv run python examples/quickstart.py
+
+See examples/providers.py for the environment variables each provider needs.
 """
 from __future__ import annotations
 
@@ -12,7 +15,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from jit_agents import BuildError, Claude, Ollama, Runtime, SqliteStore
+from jit_agents import BuildError, ModelError, Runtime, SqliteStore
+from providers import from_env
 
 
 class ShipmentEvent(BaseModel):
@@ -22,10 +26,7 @@ class ShipmentEvent(BaseModel):
     hours_late: float = Field(0, ge=0, description="hours past the promised time")
 
 
-if os.environ.get("JIT_PROVIDER") == "claude":
-    model = Claude(os.environ.get("CLAUDE_MODEL", "claude-opus-5-5"))
-else:
-    model = Ollama(os.environ.get("OLLAMA_MODEL", "qwen3.8:27b-mlx"))
+provider, model = from_env()
 
 rt = Runtime(
     model=model,
@@ -52,9 +53,13 @@ async def main() -> None:
         'The recipient is the contact name "Murphy", no phone number needed. '
         "The message should say which order is late and by how many hours."
     )
-    print(f"model: {model.model}\nintent: {intent}\n")
+    print(f"provider: {provider}\nmodel: {model.model}\nintent: {intent}\n")
 
-    proposal = await rt.propose("acme", intent)
+    try:
+        proposal = await rt.propose("acme", intent)
+    except ModelError as exc:
+        print(f"FAILED at propose: {exc}")
+        return
     if not proposal.ready:
         print(f"the agent asked: {proposal.question}")
         return
@@ -64,6 +69,9 @@ async def main() -> None:
 
     try:
         rule = await rt.build(proposal)
+    except ModelError as exc:
+        print(f"FAILED at build: {exc}")
+        return
     except BuildError as exc:
         print(f"\nbuild failed after {len(exc.attempts)} attempts:\n{exc.report.feedback()}\n\n{exc.source}")
         return

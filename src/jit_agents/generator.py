@@ -13,8 +13,8 @@ from pydantic import BaseModel, ValidationError
 
 from jit_agents.llm import Model
 from jit_agents.models import Case, Proposal
-from jit_agents.tools import ToolSet
-from jit_agents.validator import ALLOWED_METHODS, SAFE_BUILTINS
+from jit_agents.tools import Call, ToolSet
+from jit_agents.validator import ALLOWED_METHODS, SAFE_BUILTINS, unwrap
 
 CODE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -151,6 +151,8 @@ Guidelines:
 - Every test event must be a valid instance of the chosen event type, with every required field present.
 - Include at least one case where expected_calls is [] because the rule should do nothing.
 - When a threshold is involved, include cases just below, exactly at, and just above it.
+- When the event has a decimal field (a float), at least one test must give it a fractional value such as 2.5,
+  and any message built from it must show that value exactly. Whole numbers hide rounding mistakes.
 - Tool arguments are compared literally. Keep messages short and build them from event field values,
   so the same event always produces the same message.
 - State in the summary whether each threshold is exclusive ("more than", >) or inclusive ("at least", "or more", >=),
@@ -208,11 +210,30 @@ Respond with JSON: {{"source": "<python source>"}}"""
 PROPOSE_ATTEMPTS = 3
 
 
-def test_problems(tests: list[Case], event_model: type[BaseModel]) -> list[str]:
+def test_problems(tests: list[Case], event_model: type[BaseModel], toolset: ToolSet | None = None) -> list[str]:
     """Problems that make a set of tests impossible to satisfy, found before any code is written."""
     problems: list[str] = []
     seen: dict[str, Case] = {}
+    floats = [name for name, f in event_model.model_fields.items() if unwrap(f.annotation) is float]
+    if tests and floats and not any(
+        isinstance(v, float) and not v.is_integer() for case in tests for k, v in case.event.items() if k in floats
+    ):
+        problems.append(
+            f"no test gives a decimal field a fractional value. Use a value such as 2.5 for one of {floats} in at "
+            "least one test, so the rule is checked with a non-whole number."
+        )
     for case in tests:
+        if toolset is not None:
+            for call in case.expected_calls:
+                if call.tool not in toolset.actions:
+                    problems.append(f"test {case.name!r}: {call.tool!r} is not an available tool; use one of {sorted(toolset.actions)}")
+                    continue
+                bad = toolset.validate_call(Call(call.tool, call.args))
+                if bad:
+                    problems.append(f"test {case.name!r}: {bad}")
+            for name in case.lookups:
+                if name not in toolset.lookups:
+                    problems.append(f"test {case.name!r}: {name!r} is not a lookup; lookups are {sorted(toolset.lookups)}")
         try:
             event = event_model.model_validate(case.event)
         except ValidationError as exc:
@@ -262,7 +283,7 @@ async def propose(
         tests = [Case.model_validate(t) for t in data.get("tests") or []]
         event_type = data.get("event_type")
         ready = bool(data.get("ready")) and bool(tests) and event_type in events
-        problems = test_problems(tests, events[event_type]) if ready else []
+        problems = test_problems(tests, events[event_type], toolset) if ready else []
         if not problems or attempt == PROPOSE_ATTEMPTS - 1:
             break
         messages = messages + [

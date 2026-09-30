@@ -39,8 +39,8 @@ GOOD_V2 = GOOD.replace('to="Murphy"', 'to="Ops"')
 TESTS = [
     Case(
         name="late Dallas shipment",
-        event={"customer_id": "acme", "order_id": "ORD-1", "warehouse": "Dallas", "hours_late": 3.0},
-        expected_calls=[{"tool": "notify_sms", "args": {"to": "Murphy", "message": "Shipment ORD-1 from Dallas is 3.0h late"}}],
+        event={"customer_id": "acme", "order_id": "ORD-1", "warehouse": "Dallas", "hours_late": 3.5},
+        expected_calls=[{"tool": "notify_sms", "args": {"to": "Murphy", "message": "Shipment ORD-1 from Dallas is 3.5h late"}}],
     ),
     Case(
         name="exactly two hours is not late enough",

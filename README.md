@@ -57,6 +57,7 @@ rt.dispatch(event)
 |---|---|---|
 | `Ollama("qwen3.8:27b-mlx")` | Local, free | Ollama running |
 | `Claude()` | Claude Opus 5.5 by default | `uv sync --extra claude` and `ANTHROPIC_API_KEY` in the environment |
+| `OpenAICompatible(...)` | OpenAI, Azure Foundry, Databricks, and compatible servers | `uv sync --extra openai` and that host's key |
 | `CallableModel(fn)` | Tests and other providers | A function returning a dict |
 
 ```python
@@ -64,6 +65,36 @@ from jit_agents import Claude
 
 rt = Runtime(model=Claude(), ...)                                  # claude-opus-5-5
 rt = Runtime(model=Claude("claude-sonnet-5-5", effort="low"), ...)  # cheaper and faster
+```
+
+### OpenAI-format hosts
+
+```python
+from jit_agents import OpenAICompatible
+
+OpenAICompatible("gpt-5-mini")                                          # OpenAI, reads OPENAI_API_KEY
+OpenAICompatible.azure("my-resource", "my-deployment")                  # reads AZURE_OPENAI_API_KEY
+OpenAICompatible.databricks("adb-123.azuredatabricks.net", "my-endpoint")   # reads DATABRICKS_TOKEN
+OpenAICompatible("llama3", base_url="http://localhost:11434/v1", api_key="ollama")
+```
+
+The model must support structured outputs. There is no fallback to free-form text.
+
+Hosts accept different amounts of JSON Schema, so the provider has two dialects.
+
+| Dialect | For | What it does |
+|---|---|---|
+| `openai` | OpenAI, Azure Foundry | Sends the full schema in strict mode |
+| `simple` | Databricks | Removes `anyOf` and `$ref`, and stays under the host's key limit |
+
+In the `simple` dialect, parts of a schema the host cannot express are sent as JSON held in a string
+and decoded afterwards. Those parts are not enforced by the host, so the library checks them itself
+and asks the model to correct any that are wrong.
+
+To check that a provider works, run the quickstart against it:
+
+```bash
+JIT_PROVIDER=databricks uv run python examples/quickstart.py
 ```
 
 `Claude` uses structured outputs, so replies always follow the schema. It also turns on server-side

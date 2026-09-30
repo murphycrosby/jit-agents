@@ -14,6 +14,7 @@ dependencies = [
 
 [project.optional-dependencies]
 claude = ["anthropic>=1.0"]
+openai = ["openai>=1.42"]
 example = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",

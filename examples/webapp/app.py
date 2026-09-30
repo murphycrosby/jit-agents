@@ -16,6 +16,7 @@ import random
 import re
 import sqlite3
 import statistics
+import sys
 import time
 from collections import deque
 from contextlib import asynccontextmanager
@@ -27,23 +28,19 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Stre
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-from jit_agents import BuildError, Claude, Ollama, Proposal, Runtime, SqliteStore
+from jit_agents import BuildError, Proposal, Runtime, SqliteStore
 from jit_agents.generator import decision_schema
 from jit_agents.models import ExpectedCall
 from jit_agents.tools import Call, calls_match
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))
+from providers import available, default_name  # noqa: E402
 
-# Model providers. Switch at runtime from the page header, or set JIT_PROVIDER.
-# Claude reads its credentials from the environment (ANTHROPIC_API_KEY).
-PROVIDERS = {
-    "claude": Claude(os.environ.get("CLAUDE_MODEL", "claude-opus-5-5")),
-    "ollama": Ollama(os.environ.get("OLLAMA_MODEL", "qwen3.8:27b-mlx")),
-}
-_has_claude_credentials = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
-state = {"provider": os.environ.get("JIT_PROVIDER") or ("claude" if _has_claude_credentials else "ollama")}
-if state["provider"] not in PROVIDERS:
-    state["provider"] = "ollama"
+# Model providers, configured by environment variables (see examples/providers.py).
+# Switch at runtime from the page header, or set JIT_PROVIDER.
+PROVIDERS = available()
+state = {"provider": default_name(PROVIDERS)}
 
 
 def page(**context: Any) -> dict[str, Any]:
