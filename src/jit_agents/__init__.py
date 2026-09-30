@@ -1,4 +1,4 @@
-"""JIT Agents: from user intent to real-time decisions."""
+"""JIT Agents: real-time decisions for real-time systems."""
 from jit_agents.gate import GateConfig
 from jit_agents.llm import CallableModel, Claude, Model, ModelError, Ollama
 from jit_agents.openai_compat import OpenAICompatible

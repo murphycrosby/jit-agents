@@ -1,7 +1,7 @@
 [project]
 name = "jit-agents"
 version = "0.1.0"
-description = "JIT Agents: from user intent to real-time decisions"
+description = "JIT Agents: real-time decisions for real-time systems"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]

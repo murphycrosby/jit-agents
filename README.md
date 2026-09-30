@@ -1,6 +1,6 @@
 # JIT Agents
 
-From user intent to real-time decisions. The model writes the code, then gets out of the way.
+Real-time decisions for real-time systems. The model writes the rule. The stream never stops.
 
 A customer says what they want in plain language. An agent turns that into tests, the customer confirms
 the tests, and the agent writes a small Python function that passes them. The function is injected into

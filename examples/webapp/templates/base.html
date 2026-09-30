@@ -45,7 +45,7 @@
 <body>
 <header>
   <h1><a href="/">JIT Agents</a></h1>
-  <span class="muted">from user intent to real-time decisions</span>
+  <span class="muted">real-time decisions for real-time systems</span>
   <span class="muted" style="margin-left:auto">model
     <select id="provider" onchange="setProvider(this.value)" style="background:#0d0f13; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:3px 6px; font:inherit">
       {% for name, model_id in providers.items() %}<option value="{{ name }}" {% if name == provider %}selected{% endif %}>{{ name }} · {{ model_id }}</option>{% endfor %}
