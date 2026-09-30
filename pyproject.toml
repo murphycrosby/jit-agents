@@ -16,6 +16,7 @@ dependencies = [
 claude = ["anthropic>=1.0"]
 openai = ["openai>=1.42"]
 example = [
+    "openai>=1.42",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "jinja2>=3.1",

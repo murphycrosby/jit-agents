@@ -2,7 +2,7 @@
 
 Run from the repository root:
 
-    uv run --extra example uvicorn app:app --app-dir examples/webapp --reload
+    uv run --extra example examples/webapp/app.py
 
 Chat with the agent as a customer, confirm the proposed tests, and watch the
 generated rule run in a simulated event stream.
@@ -620,3 +620,9 @@ async def api_stream_control(action: str):
     else:
         raise HTTPException(404)
     return JSONResponse(stats())
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("app:app", app_dir=str(HERE), port=int(os.environ.get("PORT", "8000")), reload=True)

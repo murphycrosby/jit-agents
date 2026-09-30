@@ -193,7 +193,7 @@ Read this before using it with untrusted users.
 ## Example site
 
 ```bash
-uv run --extra example uvicorn app:app --app-dir examples/webapp --reload
+uv run --extra example examples/webapp/app.py
 ```
 
 Type a request into the update box and watch the rule get rebuilt and swapped into the running stream.
