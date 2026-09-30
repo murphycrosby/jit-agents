@@ -1,4 +1,4 @@
-"""JIT Agents: turn user intent into code that runs without the model."""
+"""JIT Agents: from user intent to real-time decisions."""
 from jit_agents.gate import GateConfig
 from jit_agents.llm import CallableModel, Claude, Model, ModelError, Ollama
 from jit_agents.openai_compat import OpenAICompatible
